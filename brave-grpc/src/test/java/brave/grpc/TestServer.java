@@ -18,8 +18,7 @@ class TestServer {
   BlockingQueue<Long> delayQueue = new LinkedBlockingQueue<>();
   BlockingQueue<TraceContextOrSamplingFlags> requestQueue = new LinkedBlockingQueue<>();
   TraceContext.Extractor<Metadata> extractor =
-      Propagation.Factory.B3.create(AsciiMetadataKeyFactory.INSTANCE)
-          .extractor(Metadata::get);
+      Propagation.Factory.B3.create(AsciiMetadataKeyFactory.INSTANCE).extractor(Metadata::get);
 
   Server server = ServerBuilder.forPort(PickUnusedPort.get())
       .addService(ServerInterceptors.intercept(new GreeterImpl(), new ServerInterceptor() {

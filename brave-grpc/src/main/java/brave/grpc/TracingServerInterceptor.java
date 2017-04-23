@@ -8,7 +8,6 @@ import brave.parser.Parser;
 import brave.parser.TagsParser;
 import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
 import io.grpc.ForwardingServerCall;
 import io.grpc.Metadata;
 import io.grpc.ServerCall;
@@ -79,12 +78,12 @@ public class TracingServerInterceptor implements ServerInterceptor {
 
   final Tracer tracer;
   final ServerHandler<ServerCall, Status> serverHandler;
-  final TraceContext.Extractor<Metadata> contextExtractor;
+  final TraceContext.Extractor<Metadata> extractor;
 
   TracingServerInterceptor(Builder builder) {
     tracer = builder.tracing.tracer();
     serverHandler = ServerHandler.create(builder.config);
-    contextExtractor = builder.tracing.propagationFactory().create(AsciiMetadataKeyFactory.INSTANCE)
+    extractor = builder.tracing.propagationFactory().create(AsciiMetadataKeyFactory.INSTANCE)
         .extractor(new Propagation.Getter<Metadata, Metadata.Key<String>>() { // retrolambda no like
           @Override public String get(Metadata metadata, Metadata.Key<String> key) {
             return metadata.get(key);
@@ -95,10 +94,7 @@ public class TracingServerInterceptor implements ServerInterceptor {
   @Override
   public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(final ServerCall<ReqT, RespT> call,
       final Metadata requestHeaders, final ServerCallHandler<ReqT, RespT> next) {
-    TraceContextOrSamplingFlags contextOrFlags = contextExtractor.extract(requestHeaders);
-    Span span = contextOrFlags.context() != null
-        ? tracer.joinSpan(contextOrFlags.context())
-        : tracer.newTrace(contextOrFlags.samplingFlags());
+    Span span = tracer.nextSpan(extractor, requestHeaders);
     return next.startCall(new ForwardingServerCall.SimpleForwardingServerCall<ReqT, RespT>(call) {
       @Override
       public void request(int numMessages) {

@@ -7,7 +7,6 @@ import brave.Tracing;
 import brave.parser.Parser;
 import brave.parser.TagsParser;
 import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
 import java.io.IOException;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
@@ -82,13 +81,13 @@ public final class TracingFilter implements Filter {
   }
 
   final Tracer tracer;
-  final ServerHandler<HttpServletRequest, HttpServletResponse> serverHandler;
-  final TraceContext.Extractor<HttpServletRequest> contextExtractor;
+  final ServerHandler<HttpServletRequest, HttpServletResponse> handler;
+  final TraceContext.Extractor<HttpServletRequest> extractor;
 
   TracingFilter(Builder builder) {
     tracer = builder.tracing.tracer();
-    serverHandler = ServerHandler.create(builder.config);
-    contextExtractor = builder.tracing.propagation().extractor(HttpServletRequest::getHeader);
+    handler = ServerHandler.create(builder.config);
+    extractor = builder.tracing.propagation().extractor(HttpServletRequest::getHeader);
   }
 
   @Override
@@ -106,20 +105,17 @@ public final class TracingFilter implements Filter {
     }
 
     HttpServletRequest httpRequest = (HttpServletRequest) request;
-    TraceContextOrSamplingFlags contextOrFlags = contextExtractor.extract(httpRequest);
-    Span span = contextOrFlags.context() != null
-        ? tracer.joinSpan(contextOrFlags.context())
-        : tracer.newTrace(contextOrFlags.samplingFlags());
+    Span span = tracer.nextSpan(extractor, httpRequest);
     try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
-      serverHandler.handleReceive(httpRequest, span);
+      handler.handleReceive(httpRequest, span);
       filterChain.doFilter(request, response);
-      serverHandler.handleSend((HttpServletResponse) response, span);
+      handler.handleSend((HttpServletResponse) response, span);
     } catch (IOException e) { // catch repeated because handleError cannot implement multi-catch
-      throw serverHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     } catch (ServletException e) {
-      throw serverHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     } catch (RuntimeException e) {
-      throw serverHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     }
   }
 

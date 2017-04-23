@@ -70,24 +70,24 @@ public class TracingClientFilter extends ClientFilter {
   }
 
   final Tracer tracer;
-  final ClientHandler<ClientRequest, ClientResponse> clientHandler;
+  final ClientHandler<ClientRequest, ClientResponse> handler;
   final TraceContext.Injector<MultivaluedMap> injector;
 
   TracingClientFilter(Builder builder) {
     tracer = builder.tracing.tracer();
-    clientHandler = ClientHandler.create(builder.config);
+    handler = ClientHandler.create(builder.config);
     injector = builder.tracing.propagation().injector(MultivaluedMap::putSingle);
   }
 
   @Override
   public ClientResponse handle(ClientRequest request) throws ClientHandlerException {
     Span span = tracer.nextSpan();
-    clientHandler.handleSend(request, span);
+    handler.handleSend(request, span);
     injector.inject(span.context(), request.getHeaders());
     try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
-      return clientHandler.handleReceive(getNext().handle(request), span);
+      return handler.handleReceive(getNext().handle(request), span);
     } catch (ClientHandlerException e) {
-      throw clientHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     }
   }
 }

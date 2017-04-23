@@ -5,7 +5,6 @@ import brave.Span;
 import brave.Tracer;
 import brave.Tracing;
 import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
 import brave.servlet.TracingFilter;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -50,27 +49,24 @@ public final class SparkTracing {
   }
 
   final Tracer tracer;
-  final ServerHandler<HttpServletRequest, HttpServletResponse> serverHandler;
-  final TraceContext.Extractor<Request> contextExtractor;
+  final ServerHandler<HttpServletRequest, HttpServletResponse> handler;
+  final TraceContext.Extractor<Request> extractor;
 
   SparkTracing(Builder builder) {
     tracer = builder.tracing.tracer();
-    serverHandler = ServerHandler.create(builder.config);
-    contextExtractor = builder.tracing.propagation().extractor(Request::headers);
+    handler = ServerHandler.create(builder.config);
+    extractor = builder.tracing.propagation().extractor(Request::headers);
   }
 
   public spark.Filter before() {
     return (request, response) -> {
-      TraceContextOrSamplingFlags contextOrFlags = contextExtractor.extract(request);
-      Span span = contextOrFlags.context() != null
-          ? tracer.joinSpan(contextOrFlags.context())
-          : tracer.newTrace(contextOrFlags.samplingFlags());
+      Span span = tracer.nextSpan(extractor, request);
       try {
-        serverHandler.handleReceive(request.raw(), span);
+        handler.handleReceive(request.raw(), span);
         request.attribute(Span.class.getName(), span);
         request.attribute(Tracer.SpanInScope.class.getName(), tracer.withSpanInScope(span));
       } catch (RuntimeException e) {
-        throw serverHandler.handleError(e, span);
+        throw handler.handleError(e, span);
       }
     };
   }
@@ -79,7 +75,7 @@ public final class SparkTracing {
     return (request, response) -> {
       Span span = request.attribute(Span.class.getName());
       ((Tracer.SpanInScope) request.attribute(Tracer.SpanInScope.class.getName())).close();
-      serverHandler.handleSend(response.raw(), span);
+      handler.handleSend(response.raw(), span);
     };
   }
 

@@ -66,12 +66,12 @@ public final class OkHttpTracing {
 
   final Tracer tracer;
   final TraceContext.Injector<Request.Builder> injector;
-  final ClientHandler<Request, Response> clientHandler;
+  final ClientHandler<Request, Response> handler;
 
   OkHttpTracing(Builder builder) {
     this.tracer = builder.tracing.tracer();
     this.injector = builder.tracing.propagation().injector(Request.Builder::addHeader);
-    this.clientHandler = ClientHandler.create(builder.config);
+    this.handler = ClientHandler.create(builder.config);
   }
 
   /**
@@ -95,15 +95,15 @@ public final class OkHttpTracing {
       Span span = tracer.nextSpan();
       OkHttpClient.Builder b = ok.newBuilder();
       b.interceptors().add(0, chain -> {
-        clientHandler.handleSend(request, span);
         Request.Builder builder = request.newBuilder();
+        handler.handleSend(request, span);
         injector.inject(span.context(), builder);
         try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
-          return clientHandler.handleReceive(chain.proceed(builder.build()), span);
+          return handler.handleReceive(chain.proceed(builder.build()), span);
         } catch (IOException e) { // catch repeated because handleError cannot implement multi-catch
-          throw clientHandler.handleError(e, span);
+          throw handler.handleError(e, span);
         } catch (RuntimeException e) {
-          throw clientHandler.handleError(e, span);
+          throw handler.handleError(e, span);
         }
       });
       return b.build().newCall(request);

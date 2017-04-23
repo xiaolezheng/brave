@@ -6,7 +6,6 @@ import brave.Tracer;
 import brave.Tracer.SpanInScope;
 import brave.Tracing;
 import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
 import brave.servlet.TracingFilter;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -51,8 +50,8 @@ public class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
   }
 
   final Tracer tracer;
-  final ServerHandler<HttpServletRequest, HttpServletResponse> serverHandler;
-  final TraceContext.Extractor<HttpServletRequest> contextExtractor;
+  final ServerHandler<HttpServletRequest, HttpServletResponse> handler;
+  final TraceContext.Extractor<HttpServletRequest> extractor;
 
   @Autowired // internal
   TracingHandlerInterceptor(Tracing tracing, Config config) {
@@ -61,8 +60,8 @@ public class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
 
   TracingHandlerInterceptor(Builder builder) {
     tracer = builder.tracing.tracer();
-    serverHandler = ServerHandler.create(builder.config);
-    contextExtractor = builder.tracing.propagation().extractor(HttpServletRequest::getHeader);
+    handler = ServerHandler.create(builder.config);
+    extractor = builder.tracing.propagation().extractor(HttpServletRequest::getHeader);
   }
 
   @Override
@@ -72,16 +71,13 @@ public class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
       return true; // already handled (possibly due to async request)
     }
 
-    TraceContextOrSamplingFlags contextOrFlags = contextExtractor.extract(request);
-    Span span = contextOrFlags.context() != null
-        ? tracer.joinSpan(contextOrFlags.context())
-        : tracer.newTrace(contextOrFlags.samplingFlags());
+    Span span = tracer.nextSpan(extractor, request);
     try {
-      serverHandler.handleReceive(request, span);
+      this.handler.handleReceive(request, span);
       request.setAttribute(Span.class.getName(), span);
       request.setAttribute(SpanInScope.class.getName(), tracer.withSpanInScope(span));
     } catch (RuntimeException e) {
-      throw serverHandler.handleError(e, span);
+      throw this.handler.handleError(e, span);
     }
     return true;
   }
@@ -92,9 +88,9 @@ public class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
     Span span = (Span) request.getAttribute(Span.class.getName());
     ((SpanInScope) request.getAttribute(SpanInScope.class.getName())).close();
     if (ex != null) {
-      serverHandler.handleError(ex, span);
+      this.handler.handleError(ex, span);
     } else {
-      serverHandler.handleSend(response, span);
+      this.handler.handleSend(response, span);
     }
   }
 }

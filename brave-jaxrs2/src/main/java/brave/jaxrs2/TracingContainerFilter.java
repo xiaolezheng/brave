@@ -8,7 +8,6 @@ import brave.Tracing;
 import brave.parser.Parser;
 import brave.parser.TagsParser;
 import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
 import java.lang.annotation.Annotation;
 import javax.annotation.Priority;
 import javax.ws.rs.ConstrainedTo;
@@ -87,14 +86,13 @@ public class TracingContainerFilter implements ContainerRequestFilter, Container
   }
 
   final Tracer tracer;
-  final ServerHandler<ContainerRequestContext, ContainerResponseContext> serverHandler;
-  final TraceContext.Extractor<ContainerRequestContext> contextExtractor;
+  final ServerHandler<ContainerRequestContext, ContainerResponseContext> handler;
+  final TraceContext.Extractor<ContainerRequestContext> extractor;
 
   TracingContainerFilter(Builder builder) {
     tracer = builder.tracing.tracer();
-    serverHandler = ServerHandler.create(builder.config);
-    contextExtractor =
-        builder.tracing.propagation().extractor(ContainerRequestContext::getHeaderString);
+    handler = ServerHandler.create(builder.config);
+    extractor = builder.tracing.propagation().extractor(ContainerRequestContext::getHeaderString);
   }
 
   /** Needed to determine if {@link #isAsyncResponse(ResourceInfo)} */
@@ -110,11 +108,8 @@ public class TracingContainerFilter implements ContainerRequestFilter, Container
   }
 
   private Span startSpan(ContainerRequestContext context) {
-    TraceContextOrSamplingFlags contextOrFlags = contextExtractor.extract(context);
-    Span span = contextOrFlags.context() != null
-        ? tracer.joinSpan(contextOrFlags.context())
-        : tracer.newTrace(contextOrFlags.samplingFlags());
-    serverHandler.handleReceive(context, span);
+    Span span = tracer.nextSpan(extractor, context);
+    handler.handleReceive(context, span);
     return span;
   }
 
@@ -136,7 +131,7 @@ public class TracingContainerFilter implements ContainerRequestFilter, Container
     if (statusInfo.getFamily() == Response.Status.Family.SERVER_ERROR) {
       span.tag(Constants.ERROR, statusInfo.getReasonPhrase());
     }
-    serverHandler.handleSend(response, span);
+    handler.handleSend(response, span);
   }
 
   // TODO: add benchmark and cache if slow

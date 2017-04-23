@@ -7,7 +7,6 @@ import brave.Tracer.SpanInScope;
 import brave.Tracing;
 import brave.parser.Parser;
 import brave.parser.TagsParser;
-import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
 import java.io.IOException;
 import java.net.URI;
@@ -83,12 +82,12 @@ public final class HttpClientTracing {
   }
 
   final Tracer tracer;
-  final ClientHandler<HttpClientContext, HttpClientContext> clientHandler;
+  final ClientHandler<HttpClientContext, HttpClientContext> handler;
   final TraceContext.Injector<HttpMessage> injector;
 
   HttpClientTracing(Builder b) {
     this.tracer = b.tracing.tracer();
-    this.clientHandler = ClientHandler.create(b.config);
+    this.handler = ClientHandler.create(b.config);
     this.injector = b.tracing.propagation().injector(HttpMessage::setHeader);
   }
 
@@ -128,18 +127,18 @@ public final class HttpClientTracing {
         return (route, request, context, execAware) -> {
           Span span = tracer.currentSpan();
           try {
-            clientHandler.handleSend(HttpClientContext.adapt(context), span);
+            handler.handleSend(HttpClientContext.adapt(context), span);
             injector.inject(span.context(), request);
             CloseableHttpResponse response = exec.execute(route, request, context, execAware);
             if (context.getResponse() == null) context.setAttribute(HTTP_RESPONSE, response);
-            clientHandler.handleReceive(HttpClientContext.adapt(context), span);
+            handler.handleReceive(HttpClientContext.adapt(context), span);
             return response;
           } catch (IOException e) { // catch repeated because handleError cannot implement multi-catch
-            throw clientHandler.handleError(e, span);
+            throw handler.handleError(e, span);
           } catch (HttpException e) {
-            throw clientHandler.handleError(e, span);
+            throw handler.handleError(e, span);
           } catch (RuntimeException e) {
-            throw clientHandler.handleError(e, span);
+            throw handler.handleError(e, span);
           } finally {
             context.getAttribute(SpanInScope.class.getName(), SpanInScope.class).close();
           }
@@ -158,11 +157,11 @@ public final class HttpClientTracing {
     return (request, context) -> {
       Span span = tracer.nextSpan();
       try {
-        clientHandler.handleSend(HttpClientContext.adapt(context), span);
+        handler.handleSend(HttpClientContext.adapt(context), span);
         injector.inject(span.context(), request);
         context.setAttribute(Span.class.getName(), span);
       } catch (RuntimeException e) {
-        throw clientHandler.handleError(e, span);
+        throw handler.handleError(e, span);
       }
     };
   }
@@ -173,9 +172,9 @@ public final class HttpClientTracing {
       Span span = (Span) context.getAttribute(Span.class.getName());
       if (span == null) return;
       try {
-        clientHandler.handleReceive(HttpClientContext.adapt(context), span);
+        handler.handleReceive(HttpClientContext.adapt(context), span);
       } catch (RuntimeException e) {
-        throw clientHandler.handleError(e, span);
+        throw handler.handleError(e, span);
       }
     };
   }

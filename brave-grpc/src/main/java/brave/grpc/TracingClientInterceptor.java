@@ -82,12 +82,12 @@ public final class TracingClientInterceptor implements ClientInterceptor {
   }
 
   final Tracer tracer;
-  final ClientHandler<MethodDescriptor, Status> clientHandler;
+  final ClientHandler<MethodDescriptor, Status> handler;
   final TraceContext.Injector<Metadata> injector;
 
   TracingClientInterceptor(Builder builder) {
     tracer = builder.tracing.tracer();
-    clientHandler = ClientHandler.create(builder.config);
+    handler = ClientHandler.create(builder.config);
     injector = builder.tracing.propagationFactory().create(AsciiMetadataKeyFactory.INSTANCE)
         .injector(new Propagation.Setter<Metadata, Metadata.Key<String>>() { // retrolambda no like
           @Override public void put(Metadata metadata, Metadata.Key<String> key, String value) {
@@ -111,12 +111,12 @@ public final class TracingClientInterceptor implements ClientInterceptor {
       return new SimpleForwardingClientCall<ReqT, RespT>(next.newCall(method, callOptions)) {
         @Override
         public void start(Listener<RespT> responseListener, Metadata headers) {
-          clientHandler.handleSend(method, span);
+          handler.handleSend(method, span);
           injector.inject(span.context(), headers);
           try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
             super.start(new SimpleForwardingClientCallListener<RespT>(responseListener) {
               @Override public void onClose(Status status, Metadata trailers) {
-                clientHandler.handleReceive(status, span);
+                handler.handleReceive(status, span);
                 super.onClose(status, trailers);
               }
             }, headers);

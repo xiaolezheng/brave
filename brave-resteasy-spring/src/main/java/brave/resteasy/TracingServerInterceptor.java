@@ -7,7 +7,6 @@ import brave.Tracing;
 import brave.parser.Parser;
 import brave.parser.TagsParser;
 import brave.propagation.TraceContext;
-import brave.propagation.TraceContextOrSamplingFlags;
 import java.util.List;
 import javax.ws.rs.ext.Provider;
 import org.jboss.resteasy.annotations.interception.ServerInterceptor;
@@ -76,8 +75,8 @@ public class TracingServerInterceptor implements PreProcessInterceptor, PostProc
   }
 
   final Tracer tracer;
-  final ServerHandler<HttpRequest, ServerResponse> serverHandler;
-  final TraceContext.Extractor<HttpRequest> contextExtractor;
+  final ServerHandler<HttpRequest, ServerResponse> handler;
+  final TraceContext.Extractor<HttpRequest> extractor;
 
   @Autowired // internal
   TracingServerInterceptor(Tracing tracing, Config config) {
@@ -86,19 +85,16 @@ public class TracingServerInterceptor implements PreProcessInterceptor, PostProc
 
   TracingServerInterceptor(Builder builder) {
     tracer = builder.tracing.tracer();
-    serverHandler = ServerHandler.create(builder.config);
-    contextExtractor = builder.tracing.propagation().extractor((carrier, key) -> {
+    handler = ServerHandler.create(builder.config);
+    extractor = builder.tracing.propagation().extractor((carrier, key) -> {
       List<String> headers = carrier.getHttpHeaders().getRequestHeader(key);
       return headers == null || headers.isEmpty() ? null : headers.get(0);
     });
   }
 
   @Override public ServerResponse preProcess(HttpRequest request, ResourceMethod resourceMethod) {
-    TraceContextOrSamplingFlags contextOrFlags = contextExtractor.extract(request);
-    Span span = contextOrFlags.context() != null
-        ? tracer.joinSpan(contextOrFlags.context())
-        : tracer.newTrace(contextOrFlags.samplingFlags());
-    serverHandler.handleReceive(request, span);
+    Span span = tracer.nextSpan(extractor, request);
+    handler.handleReceive(request, span);
     request.setAttribute(Tracer.SpanInScope.class.getName(), true);
     spanInScope.set(tracer.withSpanInScope(span));
     return null;
@@ -112,7 +108,7 @@ public class TracingServerInterceptor implements PreProcessInterceptor, PostProc
 
   @Override public void postProcess(ServerResponse response) {
     Span span = tracer.currentSpan();
-    serverHandler.handleSend(response, span);
+    handler.handleSend(response, span);
     try (Tracer.SpanInScope ws = spanInScope.get()) {
       spanInScope.remove();
     }

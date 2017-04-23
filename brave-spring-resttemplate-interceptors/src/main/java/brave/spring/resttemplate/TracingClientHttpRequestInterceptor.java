@@ -71,12 +71,12 @@ public final class TracingClientHttpRequestInterceptor implements ClientHttpRequ
   }
 
   final Tracer tracer;
-  final ClientHandler<HttpRequest, ClientHttpResponse> clientHandler;
+  final ClientHandler<HttpRequest, ClientHttpResponse> handler;
   final TraceContext.Injector<HttpHeaders> injector;
 
   TracingClientHttpRequestInterceptor(Builder builder) {
     tracer = builder.tracing.tracer();
-    clientHandler = ClientHandler.create(builder.config);
+    handler = ClientHandler.create(builder.config);
     injector = builder.tracing.propagation().injector(HttpHeaders::set);
   }
 
@@ -84,14 +84,14 @@ public final class TracingClientHttpRequestInterceptor implements ClientHttpRequ
   public ClientHttpResponse intercept(HttpRequest request, byte[] body,
       ClientHttpRequestExecution execution) throws IOException {
     Span span = tracer.nextSpan();
-    clientHandler.handleSend(request, span);
+    handler.handleSend(request, span);
     injector.inject(span.context(), request.getHeaders());
     try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
-      return clientHandler.handleReceive(execution.execute(request, body), span);
+      return handler.handleReceive(execution.execute(request, body), span);
     } catch (RuntimeException e) {
-      throw clientHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     } catch (IOException e) {
-      throw clientHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     }
   }
 }

@@ -78,7 +78,7 @@ public class TracingClientInterceptor implements ClientExecutionInterceptor {
   }
 
   final Tracer tracer;
-  final ClientHandler<ClientRequest, ClientResponse> clientHandler;
+  final ClientHandler<ClientRequest, ClientResponse> handler;
   final TraceContext.Injector<ClientRequest> injector;
 
   @Autowired // internal
@@ -88,7 +88,7 @@ public class TracingClientInterceptor implements ClientExecutionInterceptor {
 
   TracingClientInterceptor(Builder builder) {
     tracer = builder.tracing.tracer();
-    clientHandler = ClientHandler.create(builder.config);
+    handler = ClientHandler.create(builder.config);
     injector = builder.tracing.propagation().injector(ClientRequest::header);
   }
 
@@ -96,12 +96,12 @@ public class TracingClientInterceptor implements ClientExecutionInterceptor {
   public ClientResponse<?> execute(ClientExecutionContext ctx) throws Exception {
     ClientRequest request = ctx.getRequest();
     Span span = tracer.nextSpan();
-    clientHandler.handleSend(request, span);
+    handler.handleSend(request, span);
     injector.inject(span.context(), request);
     try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
-      return clientHandler.handleReceive(ctx.proceed(), span);
+      return handler.handleReceive(ctx.proceed(), span);
     } catch (Exception e) {
-      throw clientHandler.handleError(e, span);
+      throw handler.handleError(e, span);
     }
   }
 }
